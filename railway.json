@@ -3,6 +3,7 @@
     "builder": "nixpacks"
   },
   "deploy": {
-    "startCommand": "node src/index.js"
+    "startCommand": "node src/index.js",
+    "cronSchedule": "0 13 * * 0,3"
   }
 }
