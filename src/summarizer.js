@@ -89,14 +89,18 @@ async function processBatch(batch, browser) {
       try {
         text = await fetchArticleText(article.url);
       } catch (axiosErr) {
-        // Step 1b: Try Playwright fallback
-        try {
-          console.warn(`  [WARN] Axios failed for "${article.title}": ${axiosErr.message}`);
-          text = await fetchArticleTextWithPlaywright(article.url, browser);
-          console.log(`  [PLAYWRIGHT FALLBACK] Fetched article text for "${article.title}"`);
-        } catch (pwErr) {
-          console.warn(`  [WARN] Playwright also failed for "${article.title}": ${pwErr.message}`);
-          console.warn(`  [WARN] Using title as fallback for Claude input`);
+        // Step 1b: Try Playwright fallback (only if browser is available)
+        console.warn(`  [WARN] Axios failed for "${article.title}": ${axiosErr.message}`);
+        if (browser) {
+          try {
+            text = await fetchArticleTextWithPlaywright(article.url, browser);
+            console.log(`  [PLAYWRIGHT FALLBACK] Fetched article text for "${article.title}"`);
+          } catch (pwErr) {
+            console.warn(`  [WARN] Playwright also failed for "${article.title}": ${pwErr.message}`);
+            console.warn(`  [WARN] Using title as fallback for Claude input`);
+          }
+        } else {
+          console.warn(`  [WARN] Using title as fallback for Claude input (no browser available)`);
         }
       }
 
