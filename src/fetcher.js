@@ -1,12 +1,7 @@
 require('dotenv').config();
 const axios = require('axios');
 const cheerio = require('cheerio');
-let chromium;
-try {
-  chromium = require('playwright').chromium;
-} catch {
-  console.warn('[WARN] Playwright not installed — browser fallback disabled');
-}
+const { chromium } = require('playwright');
 
 const RSS_PATHS = ['/feed', '/rss', '/feed.xml', '/rss.xml', '/atom.xml'];
 const REQUEST_DELAY_MS = 2000;
@@ -209,10 +204,6 @@ async function scrapeHTML(source) {
 }
 
 async function scrapWithPlaywright(source) {
-  if (!chromium) {
-    console.log(`  [PLAYWRIGHT] Skipping ${source.name} — Playwright not available`);
-    return [];
-  }
   let browser;
   try {
     console.log(`  [PLAYWRIGHT] Launching browser for ${source.name}`);
