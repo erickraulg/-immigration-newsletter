@@ -7,6 +7,8 @@ try {
   console.warn('[WARN] Playwright not installed — browser fallback disabled');
 }
 
+const NOTION_API_URL = 'https://api.notion.com/v1';
+
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-haiku-4-5-20251001';
 const MAX_TOKENS = 300;
@@ -134,20 +136,88 @@ async function processBatch(batch, browser) {
   return { summarized, totalTokens: batchInputTokens + batchOutputTokens };
 }
 
+function getNotionHeaders() {
+  return {
+    'Authorization': `Bearer ${process.env.NOTION_API_KEY}`,
+    'Notion-Version': '2022-06-28',
+    'Content-Type': 'application/json',
+  };
+}
+
+async function getExistingUrls(databaseId) {
+  const existingUrls = new Set();
+  let hasMore = true;
+  let startCursor = undefined;
+
+  while (hasMore) {
+    const body = {
+      filter: {
+        property: 'URL',
+        url: { is_not_empty: true },
+      },
+      page_size: 100,
+    };
+    if (startCursor) body.start_cursor = startCursor;
+
+    const response = await axios.post(
+      `${NOTION_API_URL}/databases/${databaseId}/query`,
+      body,
+      { headers: getNotionHeaders() }
+    );
+
+    for (const page of response.data.results) {
+      const url = page.properties.URL?.url;
+      if (url) existingUrls.add(url);
+    }
+
+    hasMore = response.data.has_more;
+    startCursor = response.data.next_cursor;
+  }
+
+  return existingUrls;
+}
+
 async function summarizeArticles(articles) {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error('ANTHROPIC_API_KEY is not set in environment variables');
+  }
+  if (!process.env.NOTION_DATABASE_ID) {
+    throw new Error('NOTION_DATABASE_ID is not set in environment variables');
+  }
+
+  // Step 1: Fetch existing URLs to skip duplicates BEFORE summarization
+  console.log('Checking for duplicate articles in Notion...');
+  let existingUrls;
+  try {
+    existingUrls = await getExistingUrls(process.env.NOTION_DATABASE_ID);
+    console.log(`Found ${existingUrls.size} existing articles in database.\n`);
+  } catch (err) {
+    console.warn(`[WARN] Failed to query existing articles: ${err.message}`);
+    console.warn('[WARN] Proceeding without deduplication — will summarize all articles.\n');
+    existingUrls = new Set();
+  }
+
+  // Step 2: Filter out duplicates
+  const newArticles = articles.filter((article) => !existingUrls.has(article.url));
+  const duplicateCount = articles.length - newArticles.length;
+
+  if (duplicateCount > 0) {
+    console.log(`[DEDUP] Skipped ${duplicateCount} duplicate articles before summarization`);
+  }
+  console.log(`Summarizing ${newArticles.length} new articles in ${Math.ceil(newArticles.length / BATCH_SIZE)} batches of ${BATCH_SIZE}...\n`);
+
+  if (newArticles.length === 0) {
+    console.log('[SUMMARIZE] No new articles to summarize.');
+    return [];
   }
 
   const allSummarized = [];
   let totalTokensUsed = 0;
   const batches = [];
 
-  for (let i = 0; i < articles.length; i += BATCH_SIZE) {
-    batches.push(articles.slice(i, i + BATCH_SIZE));
+  for (let i = 0; i < newArticles.length; i += BATCH_SIZE) {
+    batches.push(newArticles.slice(i, i + BATCH_SIZE));
   }
-
-  console.log(`Summarizing ${articles.length} articles in ${batches.length} batches of ${BATCH_SIZE}...`);
 
   let browser;
   try {

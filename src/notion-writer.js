@@ -33,39 +33,6 @@ async function notionRequest(method, url, data, retries = 0) {
   }
 }
 
-async function getExistingUrls(databaseId) {
-  const existingUrls = new Set();
-  let hasMore = true;
-  let startCursor = undefined;
-
-  while (hasMore) {
-    const body = {
-      filter: {
-        property: 'URL',
-        url: { is_not_empty: true },
-      },
-      page_size: 100,
-    };
-    if (startCursor) body.start_cursor = startCursor;
-
-    const result = await notionRequest(
-      'post',
-      `${NOTION_API_URL}/databases/${databaseId}/query`,
-      body
-    );
-
-    for (const page of result.results) {
-      const url = page.properties.URL?.url;
-      if (url) existingUrls.add(url);
-    }
-
-    hasMore = result.has_more;
-    startCursor = result.next_cursor;
-  }
-
-  return existingUrls;
-}
-
 function buildPageProperties(article, databaseId) {
   return {
     parent: { database_id: databaseId },
@@ -107,37 +74,13 @@ async function writeArticlesToNotion(articles, notionDatabaseId) {
 
   const result = { inserted: 0, skipped: 0, failed: 0, details: [] };
 
-  // Step 1: Fetch all existing URLs for deduplication
-  console.log('Fetching existing articles from Notion for deduplication...');
-  let existingUrls;
-  try {
-    existingUrls = await getExistingUrls(databaseId);
-    console.log(`Found ${existingUrls.size} existing articles in database.`);
-  } catch (err) {
-    console.error(`[ERROR] Failed to query existing articles: ${err.message}`);
-    console.error('Proceeding without deduplication — duplicates may be created.');
-    existingUrls = new Set();
-  }
-
-  // Step 2: Insert articles one by one
-  console.log(`\nWriting ${articles.length} articles to Notion...`);
+  // Note: Deduplication now happens in summarizer.js BEFORE summarization to save tokens
+  // All articles passed here are new articles (not duplicates)
+  console.log(`Writing ${articles.length} articles to Notion...`);
 
   for (let i = 0; i < articles.length; i++) {
     const article = articles[i];
     const label = `[${i + 1}/${articles.length}]`;
-
-    // Check for duplicate
-    if (existingUrls.has(article.url)) {
-      console.log(`${label} SKIP (duplicate): ${article.title}`);
-      result.skipped++;
-      result.details.push({
-        title: article.title,
-        url: article.url,
-        status: 'skipped',
-        message: 'Duplicate URL already in database',
-      });
-      continue;
-    }
 
     try {
       const pageData = buildPageProperties(article, databaseId);
@@ -151,9 +94,6 @@ async function writeArticlesToNotion(articles, notionDatabaseId) {
         status: 'inserted',
         message: 'Successfully created in Notion',
       });
-
-      // Track the URL so we don't insert it again within the same run
-      existingUrls.add(article.url);
     } catch (err) {
       const errMsg = err.response?.data?.message || err.message;
       console.error(`${label} FAILED: ${article.title} — ${errMsg}`);
