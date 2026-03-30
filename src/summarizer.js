@@ -1,6 +1,11 @@
 require('dotenv').config();
 const axios = require('axios');
-const { chromium } = require('playwright');
+let chromium;
+try {
+  chromium = require('playwright').chromium;
+} catch {
+  console.warn('[WARN] Playwright not installed — browser fallback disabled');
+}
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-haiku-4-5-20251001';
@@ -84,14 +89,18 @@ async function processBatch(batch, browser) {
       try {
         text = await fetchArticleText(article.url);
       } catch (axiosErr) {
-        // Step 1b: Try Playwright fallback
-        try {
-          console.warn(`  [WARN] Axios failed for "${article.title}": ${axiosErr.message}`);
-          text = await fetchArticleTextWithPlaywright(article.url, browser);
-          console.log(`  [PLAYWRIGHT FALLBACK] Fetched article text for "${article.title}"`);
-        } catch (pwErr) {
-          console.warn(`  [WARN] Playwright also failed for "${article.title}": ${pwErr.message}`);
-          console.warn(`  [WARN] Using title as fallback for Claude input`);
+        // Step 1b: Try Playwright fallback (only if available)
+        console.warn(`  [WARN] Axios failed for "${article.title}": ${axiosErr.message}`);
+        if (browser) {
+          try {
+            text = await fetchArticleTextWithPlaywright(article.url, browser);
+            console.log(`  [PLAYWRIGHT FALLBACK] Fetched article text for "${article.title}"`);
+          } catch (pwErr) {
+            console.warn(`  [WARN] Playwright also failed for "${article.title}": ${pwErr.message}`);
+            console.warn(`  [WARN] Using title as fallback for Claude input`);
+          }
+        } else {
+          console.warn(`  [WARN] Using title as fallback for Claude input (no browser available)`);
         }
       }
 
@@ -142,8 +151,12 @@ async function summarizeArticles(articles) {
 
   let browser;
   try {
-    browser = await chromium.launch({ headless: true });
-    console.log('[PLAYWRIGHT] Browser launched for fallback fetching.');
+    if (chromium) {
+      browser = await chromium.launch({ headless: true });
+      console.log('[PLAYWRIGHT] Browser launched for fallback fetching.');
+    } else {
+      console.log('[PLAYWRIGHT] Not available — will use title fallback for blocked articles.');
+    }
 
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
