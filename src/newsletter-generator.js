@@ -208,9 +208,7 @@ function buildNewsletterBlocks(grouped, articles, formattedDate) {
 async function createNewsletterPage(blocks, formattedDate) {
   const archiveFolderId = process.env.NOTION_NEWSLETTER_ARCHIVE_FOLDER_ID;
 
-  // Create page with first batch of blocks
-  const firstBatch = blocks.slice(0, MAX_BLOCKS_PER_REQUEST);
-
+  // Step 1: Create the page WITHOUT blocks
   const response = await axios.post(
     `${NOTION_API_URL}/pages`,
     {
@@ -221,7 +219,6 @@ async function createNewsletterPage(blocks, formattedDate) {
           title: [{ text: { content: `📰 ${formattedDate} — Immigration News` } }],
         },
       },
-      children: firstBatch,
     },
     { headers: getHeaders() }
   );
@@ -229,8 +226,8 @@ async function createNewsletterPage(blocks, formattedDate) {
   const pageId = response.data.id;
   const pageUrl = response.data.url;
 
-  // Append remaining blocks in batches if over 100
-  for (let i = MAX_BLOCKS_PER_REQUEST; i < blocks.length; i += MAX_BLOCKS_PER_REQUEST) {
+  // Step 2: Append all blocks in batches of 100
+  for (let i = 0; i < blocks.length; i += MAX_BLOCKS_PER_REQUEST) {
     const batch = blocks.slice(i, i + MAX_BLOCKS_PER_REQUEST);
     await axios.patch(
       `${NOTION_API_URL}/blocks/${pageId}/children`,
